@@ -1,9 +1,12 @@
-use crate::dcc::Direction;
-use once_cell::sync::Lazy;
-use regex::Regex;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
+use once_cell::sync::Lazy;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+
+use crate::dcc::Direction;
 
 // Regexes for parsing messages from JMRI WiThrottle
 // static RE_VERSION: Lazy<Regex> = Lazy::new(|| Regex::new(r"VN(\d+(\.\d)?)").unwrap());
@@ -32,6 +35,7 @@ impl Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+#[derive(Serialize, Deserialize, Clone)]
 pub enum Update {
     Function { num: u8, is_on: bool },
     Velocity(i16),

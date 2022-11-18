@@ -1,11 +1,13 @@
-use crate::jmri::parse;
-use crate::jmri::parse::ParseError;
 use fmt::Display;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Formatter;
 use std::str::FromStr;
-use serde::{Serialize, Deserialize};
+
+use serde::{Deserialize, Serialize};
+
+use crate::jmri::parse;
+use crate::jmri::parse::ParseError;
 
 #[derive(Serialize, Deserialize)]
 pub struct DccTime {
@@ -20,7 +22,7 @@ impl DccTime {
             scale: 0.0,
         }
     }
-    
+
     pub fn update(&mut self, timestamp: u64, scale: f32) {
         self.timestamp = timestamp;
         self.scale = scale;
@@ -65,7 +67,7 @@ impl Display for Velocity {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum Direction {
     Reverse,
     Forward,

@@ -1,22 +1,37 @@
-pub mod parse;
-
-use crate::RETURN;
+use std::fmt::{Display, Formatter};
 use std::io;
 use std::io::ErrorKind;
+
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 
-struct JmriStreamChannels {
-    listen: broadcast::Sender<String>,
-    send: mpsc::Sender<String>,
+use crate::RETURN;
+
+pub mod parse;
+
+#[derive(Clone, Debug)]
+pub enum JmriMessage {
+    Send(String),
+    Receive(String),
 }
 
+impl Display for JmriMessage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JmriMessage::Send(msg) => f.write_str(["Send: ", msg].concat().as_str()),
+            JmriMessage::Receive(msg) => f.write_str(["Receive: ", msg].concat().as_str()),
+        }
+    }
+}
+
+#[allow(dead_code)]
 pub struct JmriStream {
-    channels: JmriStreamChannels,
     listen_handle: JoinHandle<io::Result<()>>,
     send_handle: JoinHandle<io::Result<()>>,
+    channel: broadcast::Sender<JmriMessage>,
 }
 
 impl JmriStream {
@@ -25,8 +40,9 @@ impl JmriStream {
         let (stream_reader, mut stream_writer) = stream.into_split();
         let mut stream_reader = BufReader::new(stream_reader);
 
-        let (listen_tx, _listen_rx) = broadcast::channel::<String>(32);
-        let listen_tx_handle = listen_tx.clone();
+        let (channel, _) = broadcast::channel::<JmriMessage>(32);
+
+        let listen_handle_tx = channel.clone();
         let listen_handle: JoinHandle<io::Result<()>> = tokio::spawn(async move {
             let mut line = String::new();
             loop {
@@ -40,7 +56,8 @@ impl JmriStream {
                     .map(|line| line.trim())
                     .filter(|line| !line.is_empty());
                 for line in lines {
-                    if let Err(e) = listen_tx_handle.send(line.to_string()) {
+                    let message = JmriMessage::Receive(line.to_string());
+                    if let Err(e) = listen_handle_tx.send(message) {
                         error!("Error sending to JmriStream channel: {}", e);
                         return Err(io::Error::new(ErrorKind::Interrupted, e));
                     }
@@ -49,13 +66,23 @@ impl JmriStream {
             }
         });
 
-        let (send_tx, mut send_rx) = mpsc::channel::<String>(32);
-        let _ = send_tx.send(format!("HUskjdfkjdsf{}", RETURN)).await;
-        let _ = send_tx.send(format!("NRusty{}", RETURN)).await;
-
+        let mut send_rx = channel.subscribe();
         let send_handle: JoinHandle<io::Result<()>> = tokio::spawn(async move {
-            // TODO: Maybe rewrite as other kind of loop for error handling
-            while let Some(msg) = send_rx.recv().await {
+            loop {
+                let msg = match send_rx.recv().await {
+                    Ok(msg) => match msg {
+                        JmriMessage::Send(msg) => msg,
+                        JmriMessage::Receive(_) => continue,
+                    },
+                    Err(e) => match e {
+                        RecvError::Closed => {
+                            error!("Error receiving send message: {}", e);
+                            break;
+                        }
+                        RecvError::Lagged(_) => continue,
+                    },
+                };
+
                 stream_writer
                     .write_all([msg.as_str(), RETURN].concat().as_bytes())
                     .await?;
@@ -64,23 +91,18 @@ impl JmriStream {
             Ok(())
         });
 
-        let channels = JmriStreamChannels {
-            listen: listen_tx,
-            send: send_tx,
-        };
-
         Ok(JmriStream {
-            channels,
             listen_handle,
             send_handle,
+            channel,
         })
     }
 
-    pub fn clone_sender(&mut self) -> mpsc::Sender<String> {
-        self.channels.send.clone()
+    pub fn clone_sender(&mut self) -> broadcast::Sender<JmriMessage> {
+        self.channel.clone()
     }
 
-    pub fn subscribe(&mut self) -> broadcast::Receiver<String> {
-        self.channels.listen.subscribe()
+    pub fn subscribe(&mut self) -> broadcast::Receiver<JmriMessage> {
+        self.channel.subscribe()
     }
 }

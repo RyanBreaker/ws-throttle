@@ -1,11 +1,12 @@
 [package]
-name = "throttle2"
+name = "jmri_web_throttle"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+futures-util = "0.3.25"
 log = "0.4.17"
 once_cell = "1.16.0"
 parking_lot = "0.12.1"
