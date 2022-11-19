@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
-use warp::Filter;
 use warp::ws::{Message, WebSocket, Ws};
+use warp::Filter;
 
-use crate::ADDR;
+const ADDR: &str = "S67";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum WSMessage {
@@ -41,7 +41,7 @@ impl WSListener {
         let routes = health_route.or(ws_route);
 
         let listener_handle = tokio::spawn(async move {
-            warp::serve(routes).run(([0, 0, 0, 0], 8080)).await;
+            warp::serve(routes).run(([0, 0, 0, 0], 8081)).await;
         });
 
         WSListener {
@@ -56,6 +56,12 @@ impl WSListener {
 
     pub fn subscribe(&mut self) -> broadcast::Receiver<WSMessage> {
         self.channel.subscribe()
+    }
+}
+
+impl Default for WSListener {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -96,8 +102,8 @@ async fn handle_connection(ws: WebSocket, channel: Channel) {
                         continue;
                     }
                 }
-                Err(e) => {
-                    error!("WebSocket error: {}", e);
+                Err(_e) => {
+                    // TODO create error?
                     break;
                 }
             };

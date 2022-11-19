@@ -1,31 +1,42 @@
 use fmt::Display;
 use std::collections::HashSet;
+use std::error::Error;
 use std::fmt;
-use std::fmt::Formatter;
+use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 
+use crate::parse::RE_VELOCITY;
 use serde::{Deserialize, Serialize};
 
-use crate::jmri::parse;
-use crate::jmri::parse::ParseError;
+pub type VelocityValue = i16;
+pub type FunctionNum = u8;
+pub type Timestamp = u64;
+pub type TimeScale = f32;
 
 #[derive(Serialize, Deserialize)]
 pub struct DccTime {
-    pub timestamp: u64,
-    pub scale: f32,
+    pub timestamp: Timestamp,
+    pub scale: TimeScale,
 }
 
 impl DccTime {
-    pub fn new() -> Self {
+    pub fn new(timestamp: Timestamp, scale: TimeScale) -> Self {
         DccTime {
-            timestamp: 0,
-            scale: 0.0,
+            timestamp,
+            scale,
         }
     }
 
     pub fn update(&mut self, timestamp: u64, scale: f32) {
         self.timestamp = timestamp;
         self.scale = scale;
+    }
+}
+
+
+impl Default for DccTime {
+    fn default() -> Self {
+        Self::new(0, 1.0)
     }
 }
 
@@ -44,12 +55,29 @@ impl Velocity {
     }
 }
 
+#[derive(Debug)]
+pub struct VelocityParseError {
+    value: String,
+}
+
+impl Display for VelocityParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(self.value.as_str())
+    }
+}
+
+impl Error for VelocityParseError {}
+
 impl FromStr for Velocity {
-    type Err = ParseError;
+    type Err = VelocityParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let captures = match parse::RE_VELOCITY.captures(s) {
-            None => return Err(ParseError::new("Unable to ".to_string())),
+        let captures = match RE_VELOCITY.captures(s) {
+            None => {
+                return Err(VelocityParseError {
+                    value: format!("Unable to parse '{}' as Velocity", s),
+                })
+            }
             Some(c) => c,
         };
 

@@ -7,15 +7,11 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::broadcast::error::RecvError;
-
-use crate::dcc::{DccTime, Direction, Throttle};
-use crate::jmri::{JmriMessage, JmriStream};
-use crate::jmri::parse::{parse, Update};
-use crate::server::{WSListener, WSMessage};
-
-mod dcc;
-mod jmri;
-mod server;
+use common::dcc::{DccTime, Direction, Throttle};
+use common::jmri::{JmriMessage, JmriStream};
+use common::parse;
+use common::parse::JmriUpdate;
+use common::server::{WSListener, WSMessage};
 
 pub const RETURN: &str = "\n";
 pub const UUID: &str = "5ce26240-c61c-417f-94df-4d6571fb1979";
@@ -33,7 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ADDR.to_string(),
         Throttle::new(ADDR.to_string()),
     )])));
-    let time: TimeState = Arc::new(Mutex::new(DccTime::new()));
+    let time: TimeState = Arc::new(Mutex::new(DccTime::default()));
 
     // TODO: make this a CLI arg
     let mut jmri_stream = match JmriStream::new("localhost:12090").await {
@@ -82,12 +78,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let throttle = throttle.get_mut(ADDR).unwrap();
             let mut time = listener_time.lock().unwrap();
 
-            if let Some(update) = parse(msg.as_str()) {
+            if let Some(update) = parse::jmri_message(msg.as_str()) {
                 match update.clone() {
-                    Update::Function { num, is_on } => throttle.set_func(num, is_on),
-                    Update::Velocity(value) => throttle.set_vel(value),
-                    Update::Direction(dir) => throttle.set_dir(dir),
-                    Update::Time { timestamp, scale } => time.update(timestamp, scale),
+                    JmriUpdate::Function { num, is_on } => throttle.set_func(num, is_on),
+                    JmriUpdate::Velocity(value) => throttle.set_vel(value),
+                    JmriUpdate::Direction(dir) => throttle.set_dir(dir),
+                    JmriUpdate::Time { timestamp, scale } => time.update(timestamp, scale),
                 };
                 let ws_msg = WSMessage::Send {
                     address: ADDR.to_string(),
@@ -131,7 +127,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             // For testing Serde serialization on the Update messages
             if msg == "test-update" {
-                let update_func = Update::Function {
+                let update_func = JmriUpdate::Function {
                     is_on: true,
                     num: 12,
                 };
@@ -141,14 +137,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     message: update_func,
                 };
 
-                let update_dir = Update::Direction(Direction::Forward);
+                let update_dir = JmriUpdate::Direction(Direction::Forward);
                 let update_dir = serde_json::to_string(&update_dir).unwrap();
                 let update_dir = WSMessage::Send {
                     address: ADDR.to_string(),
                     message: update_dir,
                 };
 
-                let update_vel = Update::Velocity(20);
+                let update_vel = JmriUpdate::Velocity(20);
                 let update_vel = serde_json::to_string(&update_vel).unwrap();
                 let update_vel = WSMessage::Send {
                     address: ADDR.to_string(),
@@ -161,7 +157,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 continue;
             }
 
-            if let Ok(msg) = serde_json::from_str::<Update>(msg.as_str()) {
+            if let Ok(msg) = serde_json::from_str::<JmriUpdate>(msg.as_str()) {
                 if let Some(request) = make_jmri_request(ADDR, msg) {
                     ws_jmri_sender.send(request).unwrap();
                 }
@@ -176,17 +172,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn make_jmri_request(address: &str, update: Update) -> Option<JmriMessage> {
+fn make_jmri_request(address: &str, update: JmriUpdate) -> Option<JmriMessage> {
     let msg = match update {
-        Update::Function { num, is_on } => {
+        JmriUpdate::Function { num, is_on } => {
             let is_on = if is_on { "1" } else { "0" };
             JmriMessage::Send(format!("MTA{}<;>F{}{}", address, is_on, num))
         }
-        Update::Velocity(vel) => {
+        JmriUpdate::Velocity(vel) => {
             let s = format!("MTA{}<;>V{}", address, vel);
             JmriMessage::Send(format!("{}\nMTA{}<;>qV", s, address))
         }
-        Update::Direction(dir) => {
+        JmriUpdate::Direction(dir) => {
             let s = format!("MTA{}<;>{}", address, dir);
             JmriMessage::Send(format!("{}\nMTA{}<;>vR", s, address))
         }

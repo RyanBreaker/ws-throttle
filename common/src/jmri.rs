@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::io;
-use std::io::ErrorKind;
+use std::io::{ErrorKind};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -8,9 +8,7 @@ use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 
-use crate::RETURN;
-
-pub mod parse;
+pub const RETURN: &str = "\n";
 
 #[derive(Clone, Debug)]
 pub enum JmriMessage {
@@ -46,10 +44,7 @@ impl JmriStream {
         let listen_handle: JoinHandle<io::Result<()>> = tokio::spawn(async move {
             let mut line = String::new();
             loop {
-                if let Err(e) = stream_reader.read_line(&mut line).await {
-                    error!("Error reading line from JMRI: {}", e);
-                    return Err(e);
-                }
+                stream_reader.read_line(&mut line).await?;
 
                 let lines = line
                     .split(RETURN)
@@ -58,7 +53,6 @@ impl JmriStream {
                 for line in lines {
                     let message = JmriMessage::Receive(line.to_string());
                     if let Err(e) = listen_handle_tx.send(message) {
-                        error!("Error sending to JmriStream channel: {}", e);
                         return Err(io::Error::new(ErrorKind::Interrupted, e));
                     }
                 }
@@ -76,7 +70,6 @@ impl JmriStream {
                     },
                     Err(e) => match e {
                         RecvError::Closed => {
-                            error!("Error receiving send message: {}", e);
                             break;
                         }
                         RecvError::Lagged(_) => continue,
