@@ -19,6 +19,7 @@ mod server;
 
 pub const RETURN: &str = "\n";
 pub const UUID: &str = "5ce26240-c61c-417f-94df-4d6571fb1979";
+// TODO: Base this on an address request rather than using this hard-code test value
 pub const ADDR: &str = "S67";
 
 type ThrottlesState = Arc<Mutex<HashMap<String, Throttle>>>;
@@ -34,15 +35,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )])));
     let time: TimeState = Arc::new(Mutex::new(DccTime::new()));
 
-    // let mut js = match JmriStream::new("localhost:12090").await {
-    let mut js = match JmriStream::new("192.168.3.9:12090").await {
+    // TODO: make this a CLI arg
+    let mut jmri_stream = match JmriStream::new("localhost:12090").await {
+        // let mut jmri_stream = match JmriStream::new("192.168.3.9:12090").await {
         Ok(stream) => stream,
         Err(e) => panic!("Error connecting to JMRI: {}", e),
     };
 
-    let mut ws = WSListener::new();
+    let mut ws_listener = WSListener::new();
 
-    let jmri_sender = js.clone_sender();
+    let jmri_sender = jmri_stream.clone_sender();
     let messages = [
         format!("HU{}", UUID),
         "NRusty".to_string(),
@@ -53,10 +55,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         jmri_sender.send(msg).unwrap();
     }
 
-    let mut jmri_listener = js.subscribe();
+    // TODO: Better way around creating a bunch of vars?
+    let mut jmri_listener = jmri_stream.subscribe();
     let listener_throttle = throttles.clone();
     let listener_time = time.clone();
-    let jmri_ws_sender = ws.clone_channel();
+    let jmri_ws_sender = ws_listener.clone_channel();
     let jmri_listen_handle = tokio::spawn(async move {
         loop {
             let msg = match jmri_listener.recv().await {
@@ -95,7 +98,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let ws_chann_tx = ws.clone_channel();
+    // TODO: Better way around creating a bunch of vars?
+    let ws_chann_tx = ws_listener.clone_channel();
     let ws_throttles = throttles.clone();
     let ws_jmri_sender = jmri_sender.clone();
     let ws_listen_handle = tokio::spawn(async move {
@@ -112,6 +116,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 },
             };
 
+            // If client requests, send entire current Throttle struct
             if msg == "update" {
                 let throttle = ws_throttles.lock().unwrap();
                 let throttle = throttle.get(ADDR).unwrap();
@@ -124,6 +129,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 continue;
             }
 
+            // For testing Serde serialization on the Update messages
             if msg == "test-update" {
                 let update_func = Update::Function {
                     is_on: true,
@@ -163,6 +169,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    // TODO: figure out how to fall-through if either exit, handling errors
     jmri_listen_handle.await?;
     ws_listen_handle.await?;
 
@@ -183,7 +190,7 @@ fn make_jmri_request(address: &str, update: Update) -> Option<JmriMessage> {
             let s = format!("MTA{}<;>{}", address, dir);
             JmriMessage::Send(format!("{}\nMTA{}<;>vR", s, address))
         }
-        Update::Time { .. } => return None,
+        _ => return None,
     };
 
     Some(msg)
