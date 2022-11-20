@@ -1,10 +1,12 @@
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::broadcast::{Receiver, Sender};
 use tokio::task::JoinHandle;
 use warp::ws::{Message, WebSocket, Ws};
-use warp::Filter;
+use warp::{Error, Filter};
 
 const ADDR: &str = "S67";
 
@@ -20,29 +22,12 @@ pub struct WSListener {
     channel: Channel,
 }
 
-type Channel = broadcast::Sender<WSMessage>;
+type Channel = Sender<WSMessage>;
 
 impl WSListener {
     pub fn new() -> Self {
         let (channel, _) = broadcast::channel::<WSMessage>(10);
-
-        let health_route = warp::path("health").map(|| "OK");
-
-        let channel_ws = channel.clone();
-        let channel_ws = warp::any().map(move || channel_ws.clone());
-        let ws_route =
-            warp::path("ws")
-                .and(warp::ws())
-                .and(channel_ws)
-                .map(|ws: Ws, channel: Channel| {
-                    ws.on_upgrade(move |ws| handle_connection(ws, channel))
-                });
-
-        let routes = health_route.or(ws_route);
-
-        let listener_handle = tokio::spawn(async move {
-            warp::serve(routes).run(([0, 0, 0, 0], 8081)).await;
-        });
+        let listener_handle = make_ws_handle(channel.clone());
 
         WSListener {
             listener_handle,
@@ -54,7 +39,7 @@ impl WSListener {
         self.channel.clone()
     }
 
-    pub fn subscribe(&mut self) -> broadcast::Receiver<WSMessage> {
+    pub fn subscribe(&mut self) -> Receiver<WSMessage> {
         self.channel.subscribe()
     }
 }
@@ -65,13 +50,28 @@ impl Default for WSListener {
     }
 }
 
-async fn handle_connection(ws: WebSocket, channel: Channel) {
-    let (mut ws_tx, mut ws_rx) = ws.split();
+fn make_ws_handle(channel: Sender<WSMessage>) -> JoinHandle<()> {
+    let channel = warp::any().map(move || channel.clone());
+    let health_route = warp::path("health").map(|| "OK");
+    let ws_route = warp::path("ws")
+        .and(warp::ws())
+        .and(channel)
+        .map(|ws: Ws, channel: Channel| ws.on_upgrade(move |ws| handle_ws_connection(ws, channel)));
 
-    let mut channel_rx = channel.subscribe();
-    let send_handle = tokio::spawn(async move {
+    let routes = health_route.or(ws_route);
+
+    tokio::spawn(async move {
+        warp::serve(routes).run(([0, 0, 0, 0], 8080)).await;
+    })
+}
+
+fn make_ws_send_handle(
+    mut receiver: Receiver<WSMessage>,
+    mut tx: SplitSink<WebSocket, Message>,
+) -> JoinHandle<Result<(), Error>> {
+    tokio::spawn(async move {
         loop {
-            let msg = match channel_rx.recv().await {
+            let msg = match receiver.recv().await {
                 Ok(msg) => match msg {
                     WSMessage::Send { address, message } => {
                         if !address.eq(ADDR) {
@@ -87,13 +87,19 @@ async fn handle_connection(ws: WebSocket, channel: Channel) {
                 },
             };
 
-            let _ = ws_tx.send(Message::text(msg)).await;
+            match tx.send(Message::text(msg)).await {
+                Ok(_) => {}
+                Err(e) => return Err(e),
+            };
         }
-    });
 
-    let channel_tx = channel.clone();
-    let receive_handle = tokio::spawn(async move {
-        while let Some(msg) = ws_rx.next().await {
+        Ok(())
+    })
+}
+
+fn make_ws_receive_handle(sender: Sender<WSMessage>, mut rx: SplitStream<WebSocket>) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        while let Some(msg) = rx.next().await {
             let message = match msg {
                 Ok(msg) => {
                     if let Ok(s) = msg.to_str() {
@@ -102,20 +108,26 @@ async fn handle_connection(ws: WebSocket, channel: Channel) {
                         continue;
                     }
                 }
-                Err(_e) => {
-                    // TODO create error?
-                    break;
-                }
+                Err(_e) => continue,
             };
 
             let message = WSMessage::Receive {
                 address: ADDR.to_string(),
                 message,
             };
-            let _ = channel_tx.send(message);
-        }
-    });
 
+            let _ = sender.send(message);
+        }
+    })
+}
+
+async fn handle_ws_connection(ws: WebSocket, channel: Channel) {
+    let (ws_tx, ws_rx) = ws.split();
+
+    let send_handle = make_ws_send_handle(channel.subscribe(), ws_tx);
+    let receive_handle = make_ws_receive_handle(channel.clone(), ws_rx);
+
+    // TODO: Fall-through on failures or breaks
     let _ = send_handle.await;
     let _ = receive_handle.await;
 }
