@@ -1,9 +1,8 @@
-use crate::dcc::{Direction, FunctionNum, Timestamp, TimeScale, VelocityValue};
+use crate::dcc::{Direction, FunctionNum, TimeScale, Timestamp, VelocityValue};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use std::str::FromStr;
 use serde::{Deserialize, Serialize};
-
+use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum JmriUpdate {
@@ -19,7 +18,8 @@ pub enum JmriUpdate {
     },
 }
 
-pub static RE_FUNCTION: Lazy<Regex> = Lazy::new(|| Regex::new(r"F(?P<on>[01])(?P<num>\d\d?)").unwrap());
+pub static RE_FUNCTION: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"F(?P<on>[01])(?P<num>\d\d?)").unwrap());
 pub static RE_VELOCITY: Lazy<Regex> = Lazy::new(|| Regex::new(r"V(?P<v>-?\d{1,3})").unwrap());
 pub static RE_DIRECTION: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?P<d>R[01])").unwrap());
 pub static RE_CLOCK: Lazy<Regex> =

@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::io;
-use std::io::{ErrorKind};
+use std::io::ErrorKind;
+use std::net::SocketAddr;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -8,6 +9,7 @@ use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 
+// TODO: Check whether this changes based on JMRI host platform
 pub const RETURN: &str = "\n";
 
 #[derive(Clone, Debug)]
@@ -33,7 +35,7 @@ pub struct JmriStream {
 }
 
 impl JmriStream {
-    pub async fn new(address: &str) -> io::Result<JmriStream> {
+    pub async fn new(address: SocketAddr) -> io::Result<JmriStream> {
         let stream = TcpStream::connect(address).await?;
         let (stream_reader, mut stream_writer) = stream.into_split();
         let mut stream_reader = BufReader::new(stream_reader);

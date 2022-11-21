@@ -6,15 +6,16 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::broadcast::error::RecvError;
+use crate::config::Config;
 use common::dcc::{DccTime, Direction, Throttle};
 use common::jmri::{JmriMessage, JmriStream};
 use common::parse;
 use common::parse::JmriUpdate;
 use common::server::{WSListener, WSMessage};
+use tokio::sync::broadcast::error::RecvError;
 
-pub const RETURN: &str = "\n";
-pub const UUID: &str = "5ce26240-c61c-417f-94df-4d6571fb1979";
+mod config;
+
 // TODO: Base this on an address request rather than using this hard-code test value
 pub const ADDR: &str = "S67";
 
@@ -25,24 +26,24 @@ type TimeState = Arc<Mutex<DccTime>>;
 async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();
 
+    let config = Config::get()?;
+
     let throttles: ThrottlesState = Arc::new(Mutex::new(HashMap::from([(
         ADDR.to_string(),
         Throttle::new(ADDR.to_string()),
     )])));
     let time: TimeState = Arc::new(Mutex::new(DccTime::default()));
 
-    // TODO: make this a CLI arg
-    let mut jmri_stream = match JmriStream::new("localhost:12090").await {
-        // let mut jmri_stream = match JmriStream::new("192.168.3.9:12090").await {
+    let mut jmri_stream = match JmriStream::new(config.jmri_host).await {
         Ok(stream) => stream,
         Err(e) => panic!("Error connecting to JMRI: {}", e),
     };
 
-    let mut ws_listener = WSListener::new();
+    let mut ws_listener = WSListener::new(config.server_host);
 
     let jmri_sender = jmri_stream.clone_sender();
     let messages = [
-        format!("HU{}", UUID),
+        format!("HU{}", config.uuid),
         "NRusty".to_string(),
         format!("MT+{}<;>{}", ADDR, ADDR),
     ];

@@ -1,6 +1,7 @@
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::broadcast::{Receiver, Sender};
@@ -25,9 +26,9 @@ pub struct WSListener {
 type Channel = Sender<WSMessage>;
 
 impl WSListener {
-    pub fn new() -> Self {
-        let (channel, _) = broadcast::channel::<WSMessage>(10);
-        let listener_handle = make_ws_handle(channel.clone());
+    pub fn new(address: SocketAddr) -> Self {
+        let (channel, _) = broadcast::channel::<WSMessage>(30);
+        let listener_handle = make_ws_handle(address, channel.clone());
 
         WSListener {
             listener_handle,
@@ -44,13 +45,7 @@ impl WSListener {
     }
 }
 
-impl Default for WSListener {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-fn make_ws_handle(channel: Sender<WSMessage>) -> JoinHandle<()> {
+fn make_ws_handle(address: SocketAddr, channel: Sender<WSMessage>) -> JoinHandle<()> {
     let channel = warp::any().map(move || channel.clone());
     let health_route = warp::path("health").map(|| "OK");
     let ws_route = warp::path("ws")
@@ -61,7 +56,7 @@ fn make_ws_handle(channel: Sender<WSMessage>) -> JoinHandle<()> {
     let routes = health_route.or(ws_route);
 
     tokio::spawn(async move {
-        warp::serve(routes).run(([0, 0, 0, 0], 8080)).await;
+        warp::serve(routes).run(address).await;
     })
 }
 
@@ -97,7 +92,10 @@ fn make_ws_send_handle(
     })
 }
 
-fn make_ws_receive_handle(sender: Sender<WSMessage>, mut rx: SplitStream<WebSocket>) -> JoinHandle<()> {
+fn make_ws_receive_handle(
+    sender: Sender<WSMessage>,
+    mut rx: SplitStream<WebSocket>,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         while let Some(msg) = rx.next().await {
             let message = match msg {

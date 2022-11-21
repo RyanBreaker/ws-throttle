@@ -21,10 +21,7 @@ pub struct DccTime {
 
 impl DccTime {
     pub fn new(timestamp: Timestamp, scale: TimeScale) -> Self {
-        DccTime {
-            timestamp,
-            scale,
-        }
+        DccTime { timestamp, scale }
     }
 
     pub fn update(&mut self, timestamp: u64, scale: f32) {
@@ -32,7 +29,6 @@ impl DccTime {
         self.scale = scale;
     }
 }
-
 
 impl Default for DccTime {
     fn default() -> Self {
