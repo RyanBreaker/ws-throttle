@@ -1,2 +1,2 @@
 [workspace]
-members = ["common", "server"]
+members = ["lib", "server"]

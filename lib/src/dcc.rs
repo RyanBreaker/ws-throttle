@@ -5,8 +5,8 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 
-use crate::parse::RE_VELOCITY;
 use serde::{Deserialize, Serialize};
+use crate::parse::REGEXES;
 
 pub type VelocityValue = i16;
 pub type FunctionNum = u8;
@@ -68,7 +68,7 @@ impl FromStr for Velocity {
     type Err = VelocityParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let captures = match RE_VELOCITY.captures(s) {
+        let captures = match REGEXES.velocity.captures(s) {
             None => {
                 return Err(VelocityParseError {
                     value: format!("Unable to parse '{}' as Velocity", s),
